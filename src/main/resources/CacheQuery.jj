@@ -1,0 +1,159 @@
+options
+{
+    LOOKAHEAD=1;
+}
+
+PARSER_BEGIN(CacheQuery)
+
+package cacheServer.querying;
+
+import cacheServer.core.CacheManager;
+import cacheServer.core.CacheRequestBuilder;
+import cacheServer.property.PropertyName;
+import cacheServer.property.typing.PropertyRawValue;
+import cacheServer.property.typing.PropertyTypeRepository;
+
+import java.io.ByteArrayInputStream;
+import java.nio.charset.StandardCharsets;
+
+public class CacheQuery
+{
+    private static CacheManager cacheManager;
+
+    private static Object result;
+
+    @java.lang.SuppressWarnings("RedundantThrows")
+    public static Object executeQuery(CacheManager cacheManager, String query) throws ParseException
+    {
+        CacheQuery parser = new CacheQuery(new ByteArrayInputStream(query.getBytes(StandardCharsets.UTF_8)), "utf-8");
+        CacheQuery.cacheManager = cacheManager;
+        parser.parseCommand();
+        return CacheQuery.result;
+    }
+}
+
+PARSER_END(CacheQuery)
+
+SKIP :
+{
+  " "
+| "\r"
+| "\t"
+}
+
+TOKEN:  /* keywords */
+{
+  < ADD: "add" >
+| < INIT: "init" >
+| < GET: "get" >
+| < REMOVE: "remove" >
+| < WITH: "with" >
+| < CACHE: "cache" >
+| < REPLACEMENT: "replacement by" >
+| < EOL: "\n" >
+}
+
+TOKEN:  /* Identifiers */
+{
+  < ID: ( <LETTER> | <INTEGER_LITERAL> )+ ( <FLOATING_POINT_LITERAL> )*  >
+| < LETTER: ["A"-"Z", "a"-"z"] >
+| < INTEGER_LITERAL: (["0"-"9"])+ >
+| < FLOATING_POINT_LITERAL:
+    (["0"-"9"])+ "." (["0"-"9"])+ (<EXPONENT>)?
+  | "." (["0"-"9"])+ (<EXPONENT>)?
+  | (["0"-"9"])+ <EXPONENT>
+  | (["0"-"9"])+ (<EXPONENT>)?
+  >
+| < #EXPONENT: ["e","E"] (["+","-"])? (["0"-"9"])+ >
+}
+
+void parseCommand():
+{}
+{
+  <ADD> add()
+| <INIT> init()
+| <GET> get()
+| <REMOVE> remove()
+| <EOL>
+| <EOF> { System.exit(-1); }
+}
+
+void add():
+{ CacheRequestBuilder builder = CacheQuery.cacheManager.beginAdd();
+  Token name, value;
+}
+{
+  <WITH> (name = <ID> "=" value = <ID> addBuilder(builder, name, value))+
+  {
+    result = builder.end();
+  }
+}
+
+void addBuilder(CacheRequestBuilder builder, Token name, Token value):
+{}
+{{
+  builder.with(new PropertyName(name.toString()), new PropertyRawValue(value.toString()));
+}}
+
+void init():
+{
+  CacheRequestBuilder builder = CacheQuery.cacheManager.beginInit();
+  Token type, name;
+}
+{
+  <CACHE> <WITH>
+    (type = <ID> name = <ID> initBuilder(builder, type, name))+
+  "|" <REPLACEMENT>
+    name = <ID> replaceForBuilder(builder, name)
+  {
+    result = builder.end();
+  }
+}
+
+void initBuilder(CacheRequestBuilder builder, Token type, Token name):
+{}
+{{
+  builder.with(PropertyTypeRepository.PROPERTY_TYPE_REPOSITORY.get(type.toString()), new PropertyName(name.toString()));
+}}
+
+void replaceForBuilder(CacheRequestBuilder builder, Token name):
+{}
+{{
+  builder.with(new PropertyName(name.toString()));
+}}
+
+void get():
+{
+  CacheRequestBuilder builder = CacheQuery.cacheManager.beginGet();
+  Token value, name;
+}
+{
+  <WITH> (name = <ID> "=" value = <ID> getBuilder(builder, name, value))*
+  {
+    result = builder.end();
+  }
+}
+
+void getBuilder(CacheRequestBuilder builder, Token name, Token value):
+{}
+{{
+  builder.with(new PropertyName(name.toString()), new PropertyRawValue(value.toString()));
+}}
+
+void remove():
+{
+  CacheRequestBuilder builder = CacheQuery.cacheManager.beginRemove();
+  Token value, name;
+}
+{
+  <WITH> (name = <ID> "=" value = <ID> removeBuilder(builder, name, value))*
+  {
+    result = builder.end();
+  }
+}
+
+void removeBuilder(CacheRequestBuilder builder, Token name, Token value):
+{}
+{{
+  builder.with(new PropertyName(name.toString()), new PropertyRawValue(value.toString()));
+}}
